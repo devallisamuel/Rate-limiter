@@ -1,0 +1,5 @@
+.git
+*.md
+k8s
+Dockerfile
+.dockerignore

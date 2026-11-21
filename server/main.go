@@ -10,8 +10,8 @@ import (
 )
 
 func main() {
-	// Allow 5 requests per 10 seconds.
-	l := limiter.New(5, 10*time.Second)
+	// Allow 5 requests per 10 seconds, per client IP.
+	store := limiter.NewStore(5, 10*time.Second)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -19,5 +19,5 @@ func main() {
 	})
 
 	log.Println("listening on :8080")
-	log.Fatal(http.ListenAndServe(":8080", l.Middleware(mux)))
+	log.Fatal(http.ListenAndServe(":8080", store.Middleware(mux)))
 }

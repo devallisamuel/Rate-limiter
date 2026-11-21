@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rate-limiter
+spec:
+  # Keep at 1: counters live in each pod's memory, so more replicas
+  # would each enforce their own separate limit (see Phase 9: Redis).
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rate-limiter
+  template:
+    metadata:
+      labels:
+        app: rate-limiter
+    spec:
+      containers:
+        - name: app
+          image: rate-limiter:latest
+          imagePullPolicy: IfNotPresent # use the locally loaded image
+          ports:
+            - containerPort: 8080
+          # TCP probes on purpose: an HTTP probe against "/" would be counted
+          # by the rate limiter and eventually get 429s. Switch to httpGet on
+          # /healthz once that endpoint exists (Phase 6).
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              memory: 128Mi

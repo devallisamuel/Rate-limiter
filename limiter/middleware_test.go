@@ -8,13 +8,13 @@ import (
 )
 
 func TestMiddleware_Returns429WhenOverLimit(t *testing.T) {
-	l := New(2, time.Minute)
+	s := NewStore(2, time.Minute)
 
 	// A trivial "real" handler that always replies 200.
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := l.Middleware(next)
+	handler := s.Middleware(next)
 
 	want := []int{
 		http.StatusOK,
@@ -35,13 +35,13 @@ func TestMiddleware_Returns429WhenOverLimit(t *testing.T) {
 }
 
 func TestMiddleware_DoesNotCallNextWhenDenied(t *testing.T) {
-	l := New(1, time.Minute)
+	s := NewStore(1, time.Minute)
 
 	calls := 0
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 	})
-	handler := l.Middleware(next)
+	handler := s.Middleware(next)
 
 	for i := 0; i < 3; i++ {
 		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
