@@ -1,8 +1,12 @@
 package limiter
 
-import ("time"; "fmt")
+import (
+	"sync"
+	"time"
+)
 
 type Limiter struct {
+	mu         sync.Mutex // guards counter and startTime
 	limit      int
 	windowSize time.Duration
 	counter    int
@@ -11,30 +15,27 @@ type Limiter struct {
 
 func New(limit int, windowSize time.Duration) *Limiter {
 	return &Limiter{
-		limit,
-		windowSize,
-		0,
-		time.Now(),
+		limit:      limit,
+		windowSize: windowSize,
+		startTime:  time.Now(),
 	}
 }
 
-func (param *Limiter) Allow() bool {
-	hasTimeElapsed := hasElapsed(*param)
+func (l *Limiter) Allow() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 
-	fmt.Println(!hasTimeElapsed )
-
-	if hasTimeElapsed {
-		param.counter = 0
-		param.startTime = time.Now()
-	} 
-	if param.counter < param.limit {
-		param.counter++
+	if l.hasElapsed() {
+		l.counter = 0
+		l.startTime = time.Now()
+	}
+	if l.counter < l.limit {
+		l.counter++
 		return true
 	}
-	return false;
+	return false
 }
 
-func hasElapsed(param Limiter) bool {
-	return time.Since(param.startTime) > param.windowSize 
-
+func (l *Limiter) hasElapsed() bool {
+	return time.Since(l.startTime) > l.windowSize
 }
