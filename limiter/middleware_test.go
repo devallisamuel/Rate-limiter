@@ -10,7 +10,6 @@ import (
 func TestMiddleware_Returns429WhenOverLimit(t *testing.T) {
 	s := NewStore(2, time.Minute)
 
-	// A trivial "real" handler that always replies 200.
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

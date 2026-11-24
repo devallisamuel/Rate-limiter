@@ -1,37 +1,124 @@
+# A Deployment tells Kubernetes: "keep N copies of this app running, and
+# replace any that die". You describe the DESIRED state here; Kubernetes
+# continuously works to make reality match it (restarting crashed pods,
+# rolling out new versions, and so on).
+#
+# Apply it with:   kubectl apply -f k8s/
+# Inspect it with: kubectl get deployment rate-limiter
+#                  kubectl describe deployment rate-limiter
+
+# Which version of the Kubernetes API describes this object. Deployments live
+# in the "apps" group, version "v1". (A Service, by contrast, is in the core
+# group, which is why service.yaml says just "v1".)
 apiVersion: apps/v1
+
+# The TYPE of object. This one decides what the rest of the file may contain.
 kind: Deployment
+
 metadata:
+  # The object's name, unique among Deployments in the namespace.
+  # `kubectl get deployment rate-limiter` uses this.
   name: rate-limiter
+
 spec:
-  # Keep at 1: counters live in each pod's memory, so more replicas
-  # would each enforce their own separate limit (see Phase 9: Redis).
+  # How many identical pods (running copies) to keep alive.
+  #
+  # Keep this at 1 for now: the rate-limit counters live in each pod's own
+  # memory. With 3 pods, every client would get 3x the limit, because each pod
+  # counts separately and the Service spreads requests across them.
+  # Running more than one needs a shared store such as Redis (roadmap Phase 9).
   replicas: 1
+
+  # How this Deployment finds the pods that belong to it: "any pod carrying
+  # the label app=rate-limiter is mine". It MUST match the labels in the pod
+  # template below, or `kubectl apply` rejects the file.
   selector:
     matchLabels:
       app: rate-limiter
+
+  # The blueprint for each pod. Everything under `template` describes ONE pod;
+  # the Deployment stamps out `replicas` copies of it.
   template:
     metadata:
+      # Labels are key/value tags on the pod. The selector above and the
+      # Service in service.yaml both use this label to find these pods.
       labels:
         app: rate-limiter
+
     spec:
+      # A pod can run several containers; we only need one.
       containers:
-        - name: app
+        - name: app # a name for the container inside the pod (shows in logs)
+
+          # The Docker image to run: the one built from our Dockerfile.
+          # (Build it with: docker build -t rate-limiter:latest .)
           image: rate-limiter:latest
-          imagePullPolicy: IfNotPresent # use the locally loaded image
+
+          # When to download the image from a registry. For a tag of
+          # ":latest", Kubernetes defaults to "Always" pull, which would fail
+          # here because the image only exists on this machine (loaded with
+          # `kind load docker-image`). IfNotPresent says "use the local copy if
+          # there is one".
+          imagePullPolicy: IfNotPresent
+
           ports:
+            # Documents which port the app listens on. It does NOT open or
+            # publish anything by itself; the Service's targetPort is what
+            # actually routes traffic here. It must match the PORT below.
             - containerPort: 8080
-          # TCP probes on purpose: an HTTP probe against "/" would be counted
-          # by the rate limiter and eventually get 429s. Switch to httpGet on
-          # /healthz once that endpoint exists (Phase 6).
+
+          # Environment variables handed to the process. server/config.go reads
+          # them, so you can change the limit by editing this file and
+          # re-applying it, with no rebuild of the image.
+          # (Values must be quoted strings, even for numbers.)
+          env:
+            - name: PORT
+              value: "8080"
+            - name: LIMIT # requests allowed per client per window
+              value: "5"
+            - name: WINDOW # Go duration: 10s, 1m, 500ms, ...
+              value: "10s"
+
+          # Probes are health checks that Kubernetes runs against the
+          # container. Both call /healthz, which the server registers OUTSIDE
+          # the rate limiter, so no matter how often they run they never
+          # receive a 429. (If /healthz were limited, a healthy server would
+          # eventually "fail" its own probe and get restarted.)
+          #
+          # readinessProbe: "is this pod ready to receive traffic?"
+          #   While failing, the pod is removed from the Service's list of
+          #   endpoints, so no requests are sent to it. It is NOT restarted.
+          #   This is what makes a rolling update smooth.
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /healthz
               port: 8080
+          # livenessProbe: "is this container stuck or dead?"
+          #   After several consecutive failures (3 by default, checked every
+          #   10s) Kubernetes kills and restarts the container.
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /healthz
               port: 8080
+
+          # Tells Kubernetes how much the container needs, so it can place
+          # pods sensibly and stop one app from starving the others.
           resources:
+            # requests: what the scheduler RESERVES for the pod when choosing
+            # a node. cpu 50m = 50 "millicores" = 5% of one CPU core.
+            # memory 32Mi = 32 mebibytes.
             requests:
               cpu: 50m
               memory: 32Mi
+            # limits: a hard ceiling. A container that goes over its memory
+            # limit is killed ("OOMKilled") and restarted. No CPU limit is set
+            # on purpose: Kubernetes throttles a container that hits a CPU
+            # limit, which can cause latency spikes for little benefit here.
             limits:
               memory: 128Mi
+
+      # Not set here, but worth knowing: when a pod is stopped, Kubernetes
+      # sends the process SIGTERM and waits up to 30 seconds
+      # (terminationGracePeriodSeconds) before force-killing it. Our server
+      # catches SIGTERM and shuts down gracefully (see server/main.go), so
+      # in-flight requests finish before the pod disappears.

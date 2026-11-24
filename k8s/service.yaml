@@ -1,10 +1,42 @@
+# Pods come and go, and each new pod gets a different IP address. A Service
+# gives them one STABLE name and address, and load-balances requests across
+# whichever matching pods are currently healthy.
+#
+# Think of the Deployment as "the kitchen staff" and the Service as "the front
+# desk" that customers always talk to, regardless of who is on shift.
+#
+# Apply it with:   kubectl apply -f k8s/
+# Try it locally:  kubectl port-forward svc/rate-limiter 8080:80
+#                  curl -i localhost:8080
+
+# The Service type lives in the core API group, so the version is just "v1".
 apiVersion: v1
 kind: Service
+
 metadata:
+  # Also becomes a DNS name. Other pods in the same namespace can reach this
+  # service at http://rate-limiter (or rate-limiter.<namespace>.svc.cluster.local).
   name: rate-limiter
+
 spec:
+  # No `type` is given, so this defaults to ClusterIP: reachable only from
+  # INSIDE the cluster. From your laptop use `kubectl port-forward`. To expose
+  # it outside you would add an Ingress, or set type: LoadBalancer in a cloud.
+
+  # Which pods to send traffic to: every pod with the label app=rate-limiter,
+  # the label set in the Deployment's pod template. This label match is the
+  # only link between the two files.
+  #
+  # Only pods that pass their readinessProbe receive traffic, so a pod that is
+  # still starting up (or failing its health check) is skipped automatically.
   selector:
     app: rate-limiter
+
   ports:
+    # port: the port the SERVICE listens on (what callers use: http://rate-limiter:80).
+    # targetPort: the port on the POD's container to forward to. It must match
+    # the port the app listens on (PORT=8080 in deployment.yaml).
+    #
+    # So a request flows:  caller -> rate-limiter:80 -> a pod's :8080
     - port: 80
       targetPort: 8080
